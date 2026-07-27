@@ -125,6 +125,6 @@ else:
 
     with st.expander("View individual test case results from today"):
         st.dataframe(
-            today_df[["run_id", "test_case_id", "question", "faithfulness_score", "relevance_score", "passed"]],
+            today_df[["run_id", "test_case_id", "question", "faithfulness_score", "relevance_score", "correctness_score", "passed"]],
             use_container_width=True,
         )
