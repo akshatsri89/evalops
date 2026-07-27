@@ -3,6 +3,13 @@ import tempfile
 import os
 
 import streamlit as st
+
+if hasattr(st, "secrets"):
+    for key in ["OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY",
+                "JUDGE_MODEL", "TARGET_MODEL", "DATABASE_URL"]:
+        if key in st.secrets:
+            os.environ[key] = str(st.secrets[key])
+
 import pandas as pd
 import plotly.express as px
 from sqlalchemy import create_engine
