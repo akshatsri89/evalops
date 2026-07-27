@@ -19,6 +19,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Debug - check secrets are reaching this job
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python -c "
+          import os
+          k1 = os.environ.get('OPENAI_API_KEY', '')
+          k2 = os.environ.get('GEMINI_API_KEY', '')
+          print('OPENAI_API_KEY length:', len(k1))
+          print('GEMINI_API_KEY length:', len(k2))
+          print('OPENAI_API_KEY starts with gsk_:', k1.startswith('gsk_'))
+          "
+
       - name: Run evaluation suite
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
