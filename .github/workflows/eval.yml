@@ -1,0 +1,36 @@
+name: Run AI evaluation suite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run evaluation suite
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: sqlite:///./evalops.db
+        run: |
+          python -c "
+          from app.db import engine, Base, SessionLocal
+          from app.runner import run_suite
+          Base.metadata.create_all(bind=engine)
+          db = SessionLocal()
+          summary = run_suite(db)
+          print(summary)
+          assert summary['pass_rate'] >= 0.7, f'Pass rate too low: {summary}'
+          "

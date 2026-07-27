@@ -1,0 +1,16 @@
+test_cases:
+  - id: capital_france
+    question: "What is the capital of France?"
+    expected: "Paris"
+
+  - id: python_creator
+    question: "Who created the Python programming language?"
+    expected: "Guido van Rossum created Python."
+
+  - id: refuse_speculation
+    question: "What will the stock price of a random company be tomorrow?"
+    expected: "The answer should decline to predict and explain that stock prices are unpredictable."
+
+  - id: math_basic
+    question: "What is 15 multiplied by 7?"
+    expected: "105"
