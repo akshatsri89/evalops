@@ -37,6 +37,8 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TARGET_MODEL: llama-3.1-8b-instant
+          JUDGE_MODEL: gemini-3.5-flash-lite
           DATABASE_URL: sqlite:///./evalops.db
         run: |
           python -c "
