@@ -45,6 +45,39 @@ tab_chat, tab_suite = st.tabs(["💬 Live Chat", "🧪 Test Suite"])
 # TAB 1 — Live chat with real-time scoring
 # ============================================================
 with tab_chat:
+    st.markdown("""
+    <style>
+    .chat-row { display: flex; margin: 8px 0; }
+    .chat-row.user { justify-content: flex-end; }
+    .chat-row.assistant { justify-content: flex-start; }
+    .bubble {
+        max-width: 70%;
+        padding: 10px 16px;
+        border-radius: 18px;
+        font-size: 0.95rem;
+        line-height: 1.4;
+        word-wrap: break-word;
+    }
+    .bubble.user {
+        background: #0b93f6;
+        color: white;
+        border-radius: 18px 18px 4px 18px;
+    }
+    .bubble.assistant {
+        background: #e5e5ea;
+        color: #111;
+        border-radius: 18px 18px 18px 4px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    def render_bubble(role: str, text: str):
+        safe_text = text.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+        st.markdown(
+            f'<div class="chat-row {role}"><div class="bubble {role}">{safe_text}</div></div>',
+            unsafe_allow_html=True,
+        )
+
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
     if "chat_run_id" not in st.session_state:
@@ -107,26 +140,25 @@ with tab_chat:
     # ---------------- Main chat column ----------------
     with chat_col:
         st.caption(
-            "Chat with the target AI directly. Every response is scored live "
-            "for faithfulness and relevance — optionally add an expected "
-            "answer to also check correctness."
+            "Chat with the target AI directly. Your questions appear on the "
+            "right, AI answers on the left — every answer is scored live "
+            "for faithfulness and relevance."
         )
 
         for msg in st.session_state.chat_messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-                if msg["role"] == "assistant" and "scores" in msg:
-                    s = msg["scores"]
-                    passed = msg["passed"]
-                    if passed:
-                        st.success(f"✅ Pass · faithfulness {s['faithfulness']:.2f} · relevance {s['relevance']:.2f}"
-                                   + (f" · correctness {s['correctness']:.2f}" if msg.get("has_expected") else ""))
-                    else:
-                        st.error(f"❌ Fail · faithfulness {s['faithfulness']:.2f} · relevance {s['relevance']:.2f}"
-                                  + (f" · correctness {s['correctness']:.2f}" if msg.get("has_expected") else ""))
-                    with st.expander("Why this score? · latency & judge reasoning"):
-                        st.write(f"**Latency:** {msg['latency_ms']:.0f} ms")
-                        st.write(f"**Judge reasoning:** {s.get('reasoning', 'n/a')}")
+            render_bubble(msg["role"], msg["content"])
+            if msg["role"] == "assistant" and "scores" in msg:
+                s = msg["scores"]
+                passed = msg["passed"]
+                if passed:
+                    st.success(f"✅ Pass · faithfulness {s['faithfulness']:.2f} · relevance {s['relevance']:.2f}"
+                               + (f" · correctness {s['correctness']:.2f}" if msg.get("has_expected") else ""))
+                else:
+                    st.error(f"❌ Fail · faithfulness {s['faithfulness']:.2f} · relevance {s['relevance']:.2f}"
+                              + (f" · correctness {s['correctness']:.2f}" if msg.get("has_expected") else ""))
+                with st.expander("Why this score? · latency & judge reasoning"):
+                    st.write(f"**Latency:** {msg['latency_ms']:.0f} ms")
+                    st.write(f"**Judge reasoning:** {s.get('reasoning', 'n/a')}")
 
         with st.expander("➕ Add an expected answer (optional, checks correctness too)"):
             st.session_state.pending_expected = st.text_input(
@@ -154,62 +186,60 @@ with tab_chat:
             st.session_state.pending_expected = ""
 
             st.session_state.chat_messages.append({"role": "user", "content": user_input})
-            with st.chat_message("user"):
-                st.markdown(user_input)
+            render_bubble("user", user_input)
 
-            with st.chat_message("assistant"):
-                with st.spinner("Generating and scoring response..."):
-                    try:
-                        target_output = call_target(user_input)
-                        answer = target_output["answer"]
-                        scores = score_answer(question=user_input, answer=answer, expected=expected)
+            with st.spinner("Generating and scoring response..."):
+                try:
+                    target_output = call_target(user_input)
+                    answer = target_output["answer"]
+                    scores = score_answer(question=user_input, answer=answer, expected=expected)
 
-                        has_expected = expected is not None
-                        passed = (
-                            scores["faithfulness"] >= 0.7
-                            and scores["relevance"] >= 0.7
-                            and (scores.get("correctness", 1.0) >= 0.7 if has_expected else True)
-                        )
+                    has_expected = expected is not None
+                    passed = (
+                        scores["faithfulness"] >= 0.7
+                        and scores["relevance"] >= 0.7
+                        and (scores.get("correctness", 1.0) >= 0.7 if has_expected else True)
+                    )
 
-                        st.markdown(answer)
-                        if passed:
-                            st.success(f"✅ Pass · faithfulness {scores['faithfulness']:.2f} · relevance {scores['relevance']:.2f}"
-                                       + (f" · correctness {scores['correctness']:.2f}" if has_expected else ""))
-                        else:
-                            st.error(f"❌ Fail · faithfulness {scores['faithfulness']:.2f} · relevance {scores['relevance']:.2f}"
-                                      + (f" · correctness {scores['correctness']:.2f}" if has_expected else ""))
-                        with st.expander("Why this score? · latency & judge reasoning"):
-                            st.write(f"**Latency:** {target_output['latency_ms']:.0f} ms")
-                            st.write(f"**Judge reasoning:** {scores.get('reasoning', 'n/a')}")
+                    render_bubble("assistant", answer)
+                    if passed:
+                        st.success(f"✅ Pass · faithfulness {scores['faithfulness']:.2f} · relevance {scores['relevance']:.2f}"
+                                   + (f" · correctness {scores['correctness']:.2f}" if has_expected else ""))
+                    else:
+                        st.error(f"❌ Fail · faithfulness {scores['faithfulness']:.2f} · relevance {scores['relevance']:.2f}"
+                                  + (f" · correctness {scores['correctness']:.2f}" if has_expected else ""))
+                    with st.expander("Why this score? · latency & judge reasoning"):
+                        st.write(f"**Latency:** {target_output['latency_ms']:.0f} ms")
+                        st.write(f"**Judge reasoning:** {scores.get('reasoning', 'n/a')}")
 
-                        db = SessionLocal()
-                        db.add(RunResult(
-                            run_id=st.session_state.chat_run_id,
-                            test_case_id=f"chat-{len(st.session_state.chat_messages)}",
-                            question=user_input,
-                            answer=answer,
-                            expected=expected,
-                            faithfulness_score=scores["faithfulness"],
-                            relevance_score=scores["relevance"],
-                            correctness_score=scores.get("correctness", 1.0),
-                            passed=int(passed),
-                            latency_ms=target_output["latency_ms"],
-                            cost_usd=target_output["cost_usd"],
-                            model_used=settings.target_model,
-                        ))
-                        db.commit()
-                        db.close()
+                    db = SessionLocal()
+                    db.add(RunResult(
+                        run_id=st.session_state.chat_run_id,
+                        test_case_id=f"chat-{len(st.session_state.chat_messages)}",
+                        question=user_input,
+                        answer=answer,
+                        expected=expected,
+                        faithfulness_score=scores["faithfulness"],
+                        relevance_score=scores["relevance"],
+                        correctness_score=scores.get("correctness", 1.0),
+                        passed=int(passed),
+                        latency_ms=target_output["latency_ms"],
+                        cost_usd=target_output["cost_usd"],
+                        model_used=settings.target_model,
+                    ))
+                    db.commit()
+                    db.close()
 
-                        st.session_state.chat_messages.append({
-                            "role": "assistant",
-                            "content": answer,
-                            "scores": scores,
-                            "latency_ms": target_output["latency_ms"],
-                            "passed": passed,
-                            "has_expected": has_expected,
-                        })
-                    except Exception as e:
-                        st.error(f"Something went wrong: {e}")
+                    st.session_state.chat_messages.append({
+                        "role": "assistant",
+                        "content": answer,
+                        "scores": scores,
+                        "latency_ms": target_output["latency_ms"],
+                        "passed": passed,
+                        "has_expected": has_expected,
+                    })
+                except Exception as e:
+                    st.error(f"Something went wrong: {e}")
 
 # ============================================================
 # TAB 2 — Batch test suite (existing functionality)
