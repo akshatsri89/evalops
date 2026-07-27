@@ -22,6 +22,26 @@ from app.runner import run_suite
 st.set_page_config(page_title="EvalOps Dashboard", layout="wide")
 st.title("EvalOps — LLM evaluation dashboard")
 
+with st.expander("🔧 Debug: is Streamlit picking up my secrets?"):
+    def mask(value: str) -> str:
+        if not value:
+            return "❌ EMPTY / NOT SET"
+        return f"{value[:6]}...{value[-4:]} (length {len(value)})"
+
+    st.write("**From st.secrets:**")
+    st.write("OPENAI_API_KEY:", mask(st.secrets.get("OPENAI_API_KEY", "")) if hasattr(st, "secrets") else "st.secrets not available")
+    st.write("GEMINI_API_KEY:", mask(st.secrets.get("GEMINI_API_KEY", "")) if hasattr(st, "secrets") else "st.secrets not available")
+
+    st.write("**From os.environ (after bridging):**")
+    st.write("OPENAI_API_KEY:", mask(os.environ.get("OPENAI_API_KEY", "")))
+    st.write("GEMINI_API_KEY:", mask(os.environ.get("GEMINI_API_KEY", "")))
+
+    st.write("**From settings object (what the app actually uses):**")
+    st.write("openai_api_key:", mask(settings.openai_api_key))
+    st.write("gemini_api_key:", mask(settings.gemini_api_key))
+    st.write("target_model:", settings.target_model)
+    st.write("judge_model:", settings.judge_model)
+
 engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
 Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(bind=engine)
