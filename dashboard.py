@@ -45,85 +45,171 @@ tab_chat, tab_suite = st.tabs(["💬 Live Chat", "🧪 Test Suite"])
 # TAB 1 — Live chat with real-time scoring
 # ============================================================
 with tab_chat:
-    st.caption(
-        "Chat with the target AI directly. Every response is scored live "
-        "by the judge model for faithfulness and relevance — just like the "
-        "batch test suite, but interactive."
-    )
-
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
     if "chat_run_id" not in st.session_state:
         st.session_state.chat_run_id = f"live-{str(uuid.uuid4())[:8]}"
+    if "pending_expected" not in st.session_state:
+        st.session_state.pending_expected = ""
+    if "prefill_question" not in st.session_state:
+        st.session_state.prefill_question = ""
 
-    # Replay existing conversation
-    for msg in st.session_state.chat_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg["role"] == "assistant" and "scores" in msg:
-                s = msg["scores"]
-                badge_col1, badge_col2, badge_col3, badge_col4 = st.columns(4)
-                badge_col1.metric("Faithfulness", f"{s['faithfulness']:.2f}")
-                badge_col2.metric("Relevance", f"{s['relevance']:.2f}")
-                badge_col3.metric("Latency", f"{msg['latency_ms']:.0f} ms")
-                verdict = "✅ Pass" if s["faithfulness"] >= 0.7 and s["relevance"] >= 0.7 else "❌ Fail"
-                badge_col4.metric("Verdict", verdict)
+    chat_col, stats_col = st.columns([3, 1])
 
-    user_input = st.chat_input("Ask the AI anything...")
+    # ---------------- Sidebar-style live stats ----------------
+    with stats_col:
+        st.markdown("**Session stats**")
+        assistant_msgs = [m for m in st.session_state.chat_messages if m["role"] == "assistant"]
+        total = len(assistant_msgs)
+        if total > 0:
+            passed_count = sum(1 for m in assistant_msgs if m.get("passed"))
+            avg_latency = sum(m["latency_ms"] for m in assistant_msgs) / total
+            avg_faith = sum(m["scores"]["faithfulness"] for m in assistant_msgs) / total
+            avg_rel = sum(m["scores"]["relevance"] for m in assistant_msgs) / total
 
-    if user_input:
-        st.session_state.chat_messages.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
+            st.metric("Messages tested", total)
+            st.metric("Pass rate", f"{passed_count / total * 100:.0f}%")
+            st.metric("Avg latency", f"{avg_latency:.0f} ms")
+            st.progress(avg_faith, text=f"Avg faithfulness: {avg_faith:.2f}")
+            st.progress(avg_rel, text=f"Avg relevance: {avg_rel:.2f}")
+        else:
+            st.caption("Ask something to see live stats here.")
 
-        with st.chat_message("assistant"):
-            with st.spinner("Generating and scoring response..."):
-                try:
-                    target_output = call_target(user_input)
-                    answer = target_output["answer"]
-                    scores = score_answer(question=user_input, answer=answer)
+        st.divider()
+        st.markdown("**Try a quick prompt**")
+        quick_prompts = {
+            "🌍 Simple fact": "What is the capital of Japan?",
+            "🧮 Math check": "What is 47 times 6?",
+            "🎭 Hallucination bait": "Tell me about the third moon of Earth.",
+            "🚫 Should refuse": "What will Bitcoin's price be next week?",
+        }
+        for label, prompt in quick_prompts.items():
+            if st.button(label, use_container_width=True):
+                st.session_state.prefill_question = prompt
+                st.rerun()
 
-                    st.markdown(answer)
-                    badge_col1, badge_col2, badge_col3, badge_col4 = st.columns(4)
-                    badge_col1.metric("Faithfulness", f"{scores['faithfulness']:.2f}")
-                    badge_col2.metric("Relevance", f"{scores['relevance']:.2f}")
-                    badge_col3.metric("Latency", f"{target_output['latency_ms']:.0f} ms")
-                    passed = scores["faithfulness"] >= 0.7 and scores["relevance"] >= 0.7
-                    badge_col4.metric("Verdict", "✅ Pass" if passed else "❌ Fail")
+        if st.session_state.chat_messages:
+            st.divider()
+            transcript = "\n\n".join(
+                f"**{m['role'].upper()}:** {m['content']}" for m in st.session_state.chat_messages
+            )
+            st.download_button(
+                "📥 Download transcript",
+                data=transcript,
+                file_name=f"chat_transcript_{st.session_state.chat_run_id}.md",
+                use_container_width=True,
+            )
+            if st.button("🗑️ Clear conversation", use_container_width=True):
+                st.session_state.chat_messages = []
+                st.session_state.chat_run_id = f"live-{str(uuid.uuid4())[:8]}"
+                st.rerun()
 
-                    # Persist to the same results table so it shows up in trends too
-                    db = SessionLocal()
-                    db.add(RunResult(
-                        run_id=st.session_state.chat_run_id,
-                        test_case_id=f"chat-{len(st.session_state.chat_messages)}",
-                        question=user_input,
-                        answer=answer,
-                        expected=None,
-                        faithfulness_score=scores["faithfulness"],
-                        relevance_score=scores["relevance"],
-                        correctness_score=scores.get("correctness", 1.0),
-                        passed=int(passed),
-                        latency_ms=target_output["latency_ms"],
-                        cost_usd=target_output["cost_usd"],
-                        model_used=settings.target_model,
-                    ))
-                    db.commit()
-                    db.close()
+    # ---------------- Main chat column ----------------
+    with chat_col:
+        st.caption(
+            "Chat with the target AI directly. Every response is scored live "
+            "for faithfulness and relevance — optionally add an expected "
+            "answer to also check correctness."
+        )
 
-                    st.session_state.chat_messages.append({
-                        "role": "assistant",
-                        "content": answer,
-                        "scores": scores,
-                        "latency_ms": target_output["latency_ms"],
-                    })
-                except Exception as e:
-                    st.error(f"Something went wrong: {e}")
+        for msg in st.session_state.chat_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                if msg["role"] == "assistant" and "scores" in msg:
+                    s = msg["scores"]
+                    passed = msg["passed"]
+                    if passed:
+                        st.success(f"✅ Pass · faithfulness {s['faithfulness']:.2f} · relevance {s['relevance']:.2f}"
+                                   + (f" · correctness {s['correctness']:.2f}" if msg.get("has_expected") else ""))
+                    else:
+                        st.error(f"❌ Fail · faithfulness {s['faithfulness']:.2f} · relevance {s['relevance']:.2f}"
+                                  + (f" · correctness {s['correctness']:.2f}" if msg.get("has_expected") else ""))
+                    with st.expander("Why this score? · latency & judge reasoning"):
+                        st.write(f"**Latency:** {msg['latency_ms']:.0f} ms")
+                        st.write(f"**Judge reasoning:** {s.get('reasoning', 'n/a')}")
 
-    if st.session_state.chat_messages:
-        if st.button("🗑️ Clear conversation"):
-            st.session_state.chat_messages = []
-            st.session_state.chat_run_id = f"live-{str(uuid.uuid4())[:8]}"
-            st.rerun()
+        with st.expander("➕ Add an expected answer (optional, checks correctness too)"):
+            st.session_state.pending_expected = st.text_input(
+                "Expected/reference answer for the next question",
+                value=st.session_state.pending_expected,
+                placeholder="e.g. Tokyo",
+            )
+
+        user_input = st.chat_input("Ask the AI anything...")
+
+        if st.session_state.prefill_question:
+            st.info(f"Quick prompt ready: *{st.session_state.prefill_question}*")
+            col_send, col_cancel = st.columns([1, 1])
+            with col_send:
+                if st.button("Send quick prompt ▶️", use_container_width=True):
+                    user_input = st.session_state.prefill_question
+                    st.session_state.prefill_question = ""
+            with col_cancel:
+                if st.button("Cancel", use_container_width=True):
+                    st.session_state.prefill_question = ""
+                    st.rerun()
+
+        if user_input:
+            expected = st.session_state.pending_expected.strip() or None
+            st.session_state.pending_expected = ""
+
+            st.session_state.chat_messages.append({"role": "user", "content": user_input})
+            with st.chat_message("user"):
+                st.markdown(user_input)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Generating and scoring response..."):
+                    try:
+                        target_output = call_target(user_input)
+                        answer = target_output["answer"]
+                        scores = score_answer(question=user_input, answer=answer, expected=expected)
+
+                        has_expected = expected is not None
+                        passed = (
+                            scores["faithfulness"] >= 0.7
+                            and scores["relevance"] >= 0.7
+                            and (scores.get("correctness", 1.0) >= 0.7 if has_expected else True)
+                        )
+
+                        st.markdown(answer)
+                        if passed:
+                            st.success(f"✅ Pass · faithfulness {scores['faithfulness']:.2f} · relevance {scores['relevance']:.2f}"
+                                       + (f" · correctness {scores['correctness']:.2f}" if has_expected else ""))
+                        else:
+                            st.error(f"❌ Fail · faithfulness {scores['faithfulness']:.2f} · relevance {scores['relevance']:.2f}"
+                                      + (f" · correctness {scores['correctness']:.2f}" if has_expected else ""))
+                        with st.expander("Why this score? · latency & judge reasoning"):
+                            st.write(f"**Latency:** {target_output['latency_ms']:.0f} ms")
+                            st.write(f"**Judge reasoning:** {scores.get('reasoning', 'n/a')}")
+
+                        db = SessionLocal()
+                        db.add(RunResult(
+                            run_id=st.session_state.chat_run_id,
+                            test_case_id=f"chat-{len(st.session_state.chat_messages)}",
+                            question=user_input,
+                            answer=answer,
+                            expected=expected,
+                            faithfulness_score=scores["faithfulness"],
+                            relevance_score=scores["relevance"],
+                            correctness_score=scores.get("correctness", 1.0),
+                            passed=int(passed),
+                            latency_ms=target_output["latency_ms"],
+                            cost_usd=target_output["cost_usd"],
+                            model_used=settings.target_model,
+                        ))
+                        db.commit()
+                        db.close()
+
+                        st.session_state.chat_messages.append({
+                            "role": "assistant",
+                            "content": answer,
+                            "scores": scores,
+                            "latency_ms": target_output["latency_ms"],
+                            "passed": passed,
+                            "has_expected": has_expected,
+                        })
+                    except Exception as e:
+                        st.error(f"Something went wrong: {e}")
 
 # ============================================================
 # TAB 2 — Batch test suite (existing functionality)
