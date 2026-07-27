@@ -29,7 +29,7 @@ def run_suite(db: Session, path: str = "test_cases/sample_cases.yaml") -> dict:
             expected=case.get("expected"),
         )
 
-        avg_score = (scores["faithfulness"] + scores["relevance"]) / 2
+        avg_score = (scores["faithfulness"] + scores["relevance"] + scores["correctness"]) / 3
         passed = avg_score >= PASS_THRESHOLD
 
         result = RunResult(
@@ -40,6 +40,7 @@ def run_suite(db: Session, path: str = "test_cases/sample_cases.yaml") -> dict:
             expected=case.get("expected"),
             faithfulness_score=scores["faithfulness"],
             relevance_score=scores["relevance"],
+            correctness_score=scores["correctness"],
             passed=int(passed),
             latency_ms=target_output["latency_ms"],
             cost_usd=target_output["cost_usd"],

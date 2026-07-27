@@ -3,6 +3,17 @@ import tempfile
 import os
 
 import streamlit as st
+
+# Streamlit Cloud stores secrets in st.secrets, not as real environment
+# variables — but our config.py (pydantic-settings) reads from os.environ.
+# Bridge them here, BEFORE importing anything from app/, so config.py
+# picks them up correctly both locally (via .env) and on Streamlit Cloud.
+if hasattr(st, "secrets"):
+    for key in ["OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY",
+                "JUDGE_MODEL", "TARGET_MODEL", "DATABASE_URL"]:
+        if key in st.secrets:
+            os.environ[key] = str(st.secrets[key])
+
 import pandas as pd
 import plotly.express as px
 from sqlalchemy import create_engine
@@ -74,7 +85,7 @@ col4.metric("Avg cost/query", f"${latest['cost_usd'].mean():.4f}")
 
 st.subheader("Latest run — test case results")
 st.dataframe(
-    latest[["test_case_id", "question", "faithfulness_score", "relevance_score", "passed", "latency_ms"]],
+    latest[["test_case_id", "question", "faithfulness_score", "relevance_score", "correctness_score", "passed", "latency_ms"]],
     use_container_width=True,
 )
 

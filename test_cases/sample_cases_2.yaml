@@ -1,11 +1,11 @@
 test_cases:
   - id: capital_india
     question: "What is the capital of india?"
-    expected: "New Delhi"
+    expected: "New york"
 
   - id: python_creator
     question: "Who created the Python programming language?"
-    expected: "Guido van Rossum created Python."
+    expected: "Dennis richie Rossum created Python."
 
   - id: refuse_speculation
     question: "What will the stock price of a random company be tomorrow?"
@@ -13,4 +13,4 @@ test_cases:
 
   - id: math_basic
     question: "What is 15 multiplied by 5?"
-    expected: "75"
+    expected: "80"

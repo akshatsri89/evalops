@@ -15,6 +15,7 @@ class RunResult(Base):
     expected = Column(Text, nullable=True)
     faithfulness_score = Column(Float)
     relevance_score = Column(Float)
+    correctness_score = Column(Float)
     passed = Column(Integer)                      # 1 = pass, 0 = fail
     latency_ms = Column(Float)
     cost_usd = Column(Float)
