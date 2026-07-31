@@ -27,8 +27,15 @@ from app.target_app import call_target
 from app.judge import score_answer
 from app.models import RunResult
 
-st.set_page_config(page_title="EvalOps Dashboard", layout="wide")
-st.title("EvalOps — LLM evaluation dashboard")
+st.set_page_config(page_title="EvalOps Dashboard", page_icon="🧪", layout="wide")
+
+PASS_THRESHOLD_DEFAULT = 0.7
+
+st.title("🧪 EvalOps — LLM evaluation dashboard")
+st.caption(
+    "Test and score your LLM's answers for faithfulness, relevance, and "
+    "correctness — chat with it live or run a batch test suite."
+)
 
 engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
 Base.metadata.create_all(bind=engine)
@@ -64,12 +71,37 @@ with tab_chat:
         border-radius: 18px 18px 4px 18px;
     }
     .bubble.assistant {
-        background: #e5e5ea;
-        color: #111;
+        background: var(--secondary-background-color, #e5e5ea);
+        color: var(--text-color, #111);
+        border: 1px solid rgba(128, 128, 128, 0.25);
         border-radius: 18px 18px 18px 4px;
     }
+    .score-chip {
+        display: inline-block;
+        padding: 2px 10px;
+        margin: 2px 6px 2px 0;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .score-chip.good { background: rgba(46, 204, 113, 0.18); color: #1e8449; }
+    .score-chip.warn { background: rgba(241, 196, 15, 0.20); color: #9a7d0a; }
+    .score-chip.bad  { background: rgba(231, 76, 60, 0.18); color: #c0392b; }
     </style>
     """, unsafe_allow_html=True)
+
+    def score_chip(label: str, value: float, threshold: float = PASS_THRESHOLD_DEFAULT) -> str:
+        tier = "good" if value >= threshold else ("warn" if value >= threshold - 0.2 else "bad")
+        return f'<span class="score-chip {tier}">{label} {value:.2f}</span>'
+
+    def render_scores(scores: dict, has_expected: bool):
+        chips = (
+            score_chip("faithfulness", scores["faithfulness"])
+            + score_chip("relevance", scores["relevance"])
+        )
+        if has_expected:
+            chips += score_chip("correctness", scores.get("correctness", 1.0))
+        st.markdown(chips, unsafe_allow_html=True)
 
     def render_bubble(role: str, text: str):
         safe_text = text.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
@@ -87,11 +119,9 @@ with tab_chat:
     if "prefill_question" not in st.session_state:
         st.session_state.prefill_question = ""
 
-    chat_col, stats_col = st.columns([3, 1])
-
-    # ---------------- Sidebar-style live stats ----------------
-    with stats_col:
-        st.markdown("**Session stats**")
+    # ---------------- Sidebar — live chat session controls ----------------
+    with st.sidebar:
+        st.markdown("### 💬 Live Chat session")
         assistant_msgs = [m for m in st.session_state.chat_messages if m["role"] == "assistant"]
         total = len(assistant_msgs)
         if total > 0:
@@ -100,13 +130,23 @@ with tab_chat:
             avg_faith = sum(m["scores"]["faithfulness"] for m in assistant_msgs) / total
             avg_rel = sum(m["scores"]["relevance"] for m in assistant_msgs) / total
 
-            st.metric("Messages tested", total)
-            st.metric("Pass rate", f"{passed_count / total * 100:.0f}%")
-            st.metric("Avg latency", f"{avg_latency:.0f} ms")
-            st.progress(avg_faith, text=f"Avg faithfulness: {avg_faith:.2f}")
-            st.progress(avg_rel, text=f"Avg relevance: {avg_rel:.2f}")
+            c1, c2 = st.columns(2)
+            c1.metric("Messages tested", total)
+            c2.metric("Pass rate", f"{passed_count / total * 100:.0f}%")
+            st.metric(
+                "Avg latency", f"{avg_latency:.0f} ms",
+                help="Average time from question to scored answer.",
+            )
+            st.progress(
+                avg_faith,
+                text=f"Avg faithfulness: {avg_faith:.2f}",
+            )
+            st.progress(
+                avg_rel,
+                text=f"Avg relevance: {avg_rel:.2f}",
+            )
         else:
-            st.caption("Ask something to see live stats here.")
+            st.caption("Ask something in the chat to see live stats here.")
 
         st.divider()
         st.markdown("**Try a quick prompt**")
@@ -138,6 +178,7 @@ with tab_chat:
                 st.rerun()
 
     # ---------------- Main chat column ----------------
+    chat_col = st.container()
     with chat_col:
         st.caption(
             "Chat with the target AI directly. Your questions appear on the "
@@ -150,12 +191,9 @@ with tab_chat:
             if msg["role"] == "assistant" and "scores" in msg:
                 s = msg["scores"]
                 passed = msg["passed"]
-                if passed:
-                    st.success(f"✅ Pass · faithfulness {s['faithfulness']:.2f} · relevance {s['relevance']:.2f}"
-                               + (f" · correctness {s['correctness']:.2f}" if msg.get("has_expected") else ""))
-                else:
-                    st.error(f"❌ Fail · faithfulness {s['faithfulness']:.2f} · relevance {s['relevance']:.2f}"
-                              + (f" · correctness {s['correctness']:.2f}" if msg.get("has_expected") else ""))
+                badge = "✅ Pass" if passed else "❌ Fail"
+                st.markdown(f"**{badge}**", unsafe_allow_html=False)
+                render_scores(s, msg.get("has_expected", False))
                 with st.expander("Why this score? · latency & judge reasoning"):
                     st.write(f"**Latency:** {msg['latency_ms']:.0f} ms")
                     st.write(f"**Judge reasoning:** {s.get('reasoning', 'n/a')}")
@@ -202,12 +240,9 @@ with tab_chat:
                     )
 
                     render_bubble("assistant", answer)
-                    if passed:
-                        st.success(f"✅ Pass · faithfulness {scores['faithfulness']:.2f} · relevance {scores['relevance']:.2f}"
-                                   + (f" · correctness {scores['correctness']:.2f}" if has_expected else ""))
-                    else:
-                        st.error(f"❌ Fail · faithfulness {scores['faithfulness']:.2f} · relevance {scores['relevance']:.2f}"
-                                  + (f" · correctness {scores['correctness']:.2f}" if has_expected else ""))
+                    badge = "✅ Pass" if passed else "❌ Fail"
+                    st.markdown(f"**{badge}**", unsafe_allow_html=False)
+                    render_scores(scores, has_expected)
                     with st.expander("Why this score? · latency & judge reasoning"):
                         st.write(f"**Latency:** {target_output['latency_ms']:.0f} ms")
                         st.write(f"**Judge reasoning:** {scores.get('reasoning', 'n/a')}")
@@ -246,7 +281,36 @@ with tab_chat:
 # ============================================================
 with tab_suite:
     st.subheader("Run a test suite")
-    uploaded_file = st.file_uploader("Upload a test cases YAML file", type=["yaml", "yml"])
+
+    SAMPLE_YAML = """\
+# Each item is one test case. `expected` is optional — omit it to skip
+# the correctness check and only score faithfulness + relevance.
+- id: capital-japan
+  question: "What is the capital of Japan?"
+  expected: "Tokyo"
+- id: math-check
+  question: "What is 47 times 6?"
+  expected: "282"
+- id: refuse-prediction
+  question: "What will Bitcoin's price be next week?"
+"""
+
+    upload_col, sample_col = st.columns([4, 1])
+    with upload_col:
+        uploaded_file = st.file_uploader(
+            "Upload a test cases YAML file",
+            type=["yaml", "yml"],
+            help="A list of test cases with `question` and optional `expected` fields. "
+                 "Download the sample on the right to see the exact format.",
+        )
+    with sample_col:
+        st.write("")  # vertical alignment spacer
+        st.download_button(
+            "📄 Sample YAML",
+            data=SAMPLE_YAML,
+            file_name="sample_test_cases.yaml",
+            use_container_width=True,
+        )
 
     col_a, col_b = st.columns([1, 4])
     with col_a:
@@ -286,20 +350,66 @@ with tab_suite:
         st.subheader("Latest run summary")
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total tests", len(latest))
-        col2.metric("Pass rate", f"{latest['passed'].mean() * 100:.0f}%")
+        col2.metric(
+            "Pass rate", f"{latest['passed'].mean() * 100:.0f}%",
+            help=f"Share of test cases scoring ≥{PASS_THRESHOLD_DEFAULT:.0%} "
+                 "on faithfulness, relevance, and (if provided) correctness.",
+        )
         col3.metric("Avg latency", f"{latest['latency_ms'].mean():.0f} ms")
         col4.metric("Avg cost/query", f"${latest['cost_usd'].mean():.4f}")
 
         st.subheader("Latest run — test case results")
+        result_filter = st.radio(
+            "Filter",
+            ["All", "Passed only", "Failed only"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        display_df = latest
+        if result_filter == "Passed only":
+            display_df = latest[latest["passed"] == 1]
+        elif result_filter == "Failed only":
+            display_df = latest[latest["passed"] == 0]
+
         st.dataframe(
-            latest[["test_case_id", "question", "faithfulness_score", "relevance_score", "correctness_score", "passed", "latency_ms"]],
+            display_df[["test_case_id", "question", "faithfulness_score", "relevance_score", "correctness_score", "passed", "latency_ms"]],
             use_container_width=True,
+            hide_index=True,
+            column_config={
+                "test_case_id": "Test case",
+                "question": "Question",
+                "faithfulness_score": st.column_config.ProgressColumn(
+                    "Faithfulness", min_value=0, max_value=1, format="%.2f",
+                ),
+                "relevance_score": st.column_config.ProgressColumn(
+                    "Relevance", min_value=0, max_value=1, format="%.2f",
+                ),
+                "correctness_score": st.column_config.ProgressColumn(
+                    "Correctness", min_value=0, max_value=1, format="%.2f",
+                ),
+                "passed": st.column_config.CheckboxColumn("Passed"),
+                "latency_ms": st.column_config.NumberColumn("Latency (ms)", format="%.0f"),
+            },
+        )
+        csv = display_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "📥 Download results as CSV",
+            data=csv,
+            file_name=f"results_{latest_run_id}.csv",
         )
 
         st.subheader("Pass rate trend across runs")
         trend = df.groupby("run_id", sort=False)["passed"].mean().reset_index()
         trend = trend.iloc[::-1]  # oldest first
         fig = px.line(trend, x="run_id", y="passed", markers=True, labels={"passed": "pass rate"})
+        fig.add_hline(
+            y=PASS_THRESHOLD_DEFAULT,
+            line_dash="dot",
+            line_color="gray",
+            annotation_text=f"target {PASS_THRESHOLD_DEFAULT:.0%}",
+            annotation_position="bottom right",
+        )
+        fig.update_yaxes(tickformat=".0%", range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Today's test history")
@@ -323,14 +433,45 @@ with tab_suite:
                 .sort_values("time", ascending=False)
             )
             today_summary["time"] = today_summary["time"].dt.strftime("%H:%M:%S")
-            today_summary["pass_rate"] = (today_summary["pass_rate"] * 100).round(0).astype(int).astype(str) + "%"
             today_summary["avg_cost_usd"] = today_summary["avg_cost_usd"].round(4)
             today_summary["avg_latency_ms"] = today_summary["avg_latency_ms"].round(0)
+            today_summary["pass_rate"] = (today_summary["pass_rate"] * 100).round(0)
 
-            st.dataframe(today_summary, use_container_width=True)
+            st.dataframe(
+                today_summary,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "run_id": "Run ID",
+                    "time": "Time",
+                    "total": "Total tests",
+                    "passed": "Passed",
+                    "pass_rate": st.column_config.ProgressColumn(
+                        "Pass rate", min_value=0, max_value=100, format="%.0f%%",
+                    ),
+                    "avg_latency_ms": st.column_config.NumberColumn("Avg latency (ms)", format="%.0f"),
+                    "avg_cost_usd": st.column_config.NumberColumn("Avg cost/query", format="$%.4f"),
+                },
+            )
 
             with st.expander("View individual test case results from today"):
                 st.dataframe(
                     today_df[["run_id", "test_case_id", "question", "faithfulness_score", "relevance_score", "correctness_score", "passed"]],
                     use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "run_id": "Run ID",
+                        "test_case_id": "Test case",
+                        "question": "Question",
+                        "faithfulness_score": st.column_config.ProgressColumn(
+                            "Faithfulness", min_value=0, max_value=1, format="%.2f",
+                        ),
+                        "relevance_score": st.column_config.ProgressColumn(
+                            "Relevance", min_value=0, max_value=1, format="%.2f",
+                        ),
+                        "correctness_score": st.column_config.ProgressColumn(
+                            "Correctness", min_value=0, max_value=1, format="%.2f",
+                        ),
+                        "passed": st.column_config.CheckboxColumn("Passed"),
+                    },
                 )
